@@ -1,0 +1,175 @@
+---
+title: "Association rules for bakery"
+author: "Rafał Kaczmarek"
+output: html_document
+---
+
+
+# Introduction
+
+Association rules are methods used for exploring relationships between data. They are highly useful in companies, because by them companies may take advantage of consumer data and use it to examine consumer behavior. Greater knowledge about consumer can be used to reach higher profits. In this paper I will find association rules which are typical for bakery customers. Dataset, which contains data about transactions in bakery, was downloaded from https://www.kaggle.com/sulmansarwar/transactions-from-a-bakery/version/1
+
+```{r test, include=FALSE}
+setwd("D:\\studia\\IV rok\\Unsupervised learning\\projekt_2")
+```
+
+## Libraries
+
+Firstly, I load necessary libraries.
+
+```{r libraries,message=FALSE}
+library(arules)
+library(arulesViz)
+library(kableExtra)
+```
+
+Dataset for association rules techniques needs to be appropriately prepared. Hence, I use read.transactions and specify 2 columns - "Transaction" and "Item". Additionally, I check the number of baskets and unique items.
+
+```{r load, warning=FALSE}
+bakery <- read.transactions("Bakery.csv", format="single", sep=",", cols=c("Transaction","Item"), header=TRUE)
+
+summary(size(bakery)) 
+cat("Number of baskets:", length(bakery))
+cat("Number of unique items:", sum(size(bakery)))
+```
+
+In order to become acquainted with data I plot absolute and relative item frequency.
+
+```{r plotF1, warning=FALSE}
+itemFrequencyPlot(bakery, topN = 10, type = "absolute", main = "Item frequency", cex.names = 0.75) 
+```
+
+
+```{r plotF2, warning=FALSE}
+itemFrequencyPlot(bakery, topN = 10, type = "relative", main = "Item frequency", cex.names = 0.75) 
+```
+
+The most ordered products are coffee and bread. It is interesting because dataset comes from bakery so expectable the most ordered product was bread, not coffee.
+
+# Eclat algorithm
+
+The Eclat algorithm stands for Equivalence Class Clustering and bottom-up Lattice Traversal. It is used to identify frequent patterns in a transaction data. Eclat algorithm is a more efficient and scalable version of the Apriori algorithm. While the Apriori algorithm works in a horizontal sense imitating the Breadth-First Search of a graph, the Eclat algorithm works in a vertical manner just like the Depth-First Search of a graph. I use Apriori algorithm in a further part of this project to show differences in results between these two algorithms. More about Eclat algorithm: https://www.geeksforgeeks.org/ml-eclat-algorithm/
+
+To understand this topic fully, I remind 3 measures:
+
+- support - it gives information about frequency of an itemset or a rule in the data.
+- confidence - it is the percentage in which the consequent is also satisfied upon particular antecedent.
+- lift - it shows the strength of the rule (higher lift --> better rule). It is calculated by formula: lift(X --> Y) = confidence(X --> Y) / support(Y)
+    
+For association rule X ==> Y:
+    
+- lift > 1 means that X and Y are positively correlated,
+- lift = 1 means that X and Y are independent, 
+- lift < 1 means that X and Y are negatively correlated.
+
+```{r eclat}
+rules_e <-eclat(bakery, parameter=list(supp=0.05)) 
+```
+```{r eclat_i, results=FALSE}
+rules_e_i <- inspect(head(sort(rules_e, by = "support"), 15))
+```
+```{r eclat_k}
+kable(rules_e_i, "html") %>% kable_styling("striped")
+```
+
+By using eclat() I do not create rules. Eclat algorithm digs through frequent sets to limit the data set. I obtain frequent sets and measure values determined for them. If we look on support, we can notice that coffee and bread greatly vary from the rest. These support results were visible on "item frequency by relative" plot.
+
+```{r eclat1, results=FALSE}
+rules_eclat<-ruleInduction(rules_e, bakery, confidence=0.05)
+rules_eclat_i <- inspect(head(sort(rules_eclat, by = "confidence", decreasing = TRUE),15))
+```
+```{r eclat1_k}
+kable(rules_eclat_i, "html") %>% kable_styling("striped")
+```
+
+In order to create rules I use ruleInduction() with confidence = 0.05. Thanks to it I have obtained 6 rules, but for only 2 rules lift value is higher than 1.
+
+```{r eclat2, results=FALSE}
+rules_eclat<-ruleInduction(eclat(bakery, parameter=list(supp=0.02)) , bakery, confidence=0.05)
+rules_supp_i <- inspect(head(sort(rules_eclat, by="lift", decreasing=TRUE),15), linebreak=F)
+
+```
+
+```{r eclat2_k}
+kable(rules_supp_i, "html") %>% kable_styling("striped")
+rules_eclat
+```
+
+Changing support value from 0.05 to 0.02 causes that more rules have lift value higher than 1, but not only lift matters. I get 31 rules but very little confidence so I decide to raise this value.
+
+
+```{r eclat3, results=FALSE}
+rules_eclat_2<-ruleInduction(eclat(bakery, parameter=list(supp=0.02)) , bakery, confidence=0.3)
+rules_supp_i_2 <- inspect(head(sort(rules_eclat_2, by="lift", decreasing=TRUE),15), linebreak=F)
+
+```
+
+```{r eclat3_k}
+kable(rules_supp_i_2, "html") %>% kable_styling("striped")
+rules_eclat_2
+```
+
+After raising confidence to 0.3 I obtain 13 rules where lift value for most of them is above 1. Only for one rule, rule consequent is bread, for others it is coffee.  
+
+```{r eclat_plot1}
+plot(rules_eclat_2, method="graph", shading="lift")
+```
+
+Results described in a graphic way.
+
+```{r eclat_plot2}
+plot(rules_eclat_2, method="graph", measure="support", shading="lift", engine="html")
+```
+
+The same plot as above but in dynamic version.
+
+# Apriori algorithm
+
+In this part I try Apriori algorithm with the same support and confidence values as in Eclat algorithm. 
+
+```{r apriori}
+rules_apriori<-apriori(bakery, parameter=list(supp=0.02, conf=0.3))
+```
+```{r apriori_i,results=FALSE}
+rules_apriori_i <-  inspect(head(sort(rules_apriori, by = "lift", decreasing = TRUE),15))
+```
+
+```{r apriori_k}
+kable(rules_apriori_i , "html") %>% kable_styling("striped")
+rules_apriori
+```
+
+The results are nearly the same as using Eclat algorithm. Difference occurs in a number of rules, because in Apriori there are 15 rules, while in Eclat 13 rules but 2 rules in Apriori are uninterpretable because lhs for them is equal to "{}" so conclusions from these two algorithms are the same. As I mentioned in previous part, Eclat algorithm is a more efficient and scalable version of the Apriori algorithm thus the decision which algorithm should be used depends of the dataset.
+
+
+```{r apriori_plot2}
+plot(rules_apriori, method="graph", measure="support", shading="lift", engine="html")
+```
+
+Plot for Apriori algorithm.
+
+# Rules for particular product
+
+Sometimes there is necessity to analyze particular product, not whole basket of products. In this part I focus on analyzing only one product.
+
+```{r apriori_one}
+rules_bread<-apriori(data=bakery, parameter=list(supp=0.01,conf = 0.1), 
+                          appearance=list(default="lhs",rhs="Bread"), control=list(verbose=F)) 
+rules_bread<-sort(rules_bread, by="support", decreasing=T)
+inspect(head(rules_bread))
+```
+
+Here I check rules where rule consequent is only bread. Algorithm has printed some rules, but only one of them has lift value above 1 while lift values under 1 are not desirable. Even this one rule is not worth further research because support value is only 0.09, confidence is 0.34 and lift is 1.04.
+
+```{r apriori_one_2}
+rules_coffee<-apriori(data=bakery, parameter=list(supp=0.01,conf = 0.3, minlen=3), 
+                          appearance=list(default="lhs",rhs="Coffee"), control=list(verbose=F)) 
+rules_coffee<-sort(rules_coffee, by="support", decreasing=T)
+inspect(head(rules_coffee))
+```
+
+There is possibility to check rule consequent as a basket with many products. I have chosen 2 products. In this case the statistics are too low to take received rules into account in creating strategy for company.
+
+# Conclusions
+
+Association rules are very useful in setting better strategy of product placement not only for huge companies but also for small businesses. In this project I have shown example use of the Eclat and Apriori algorithm to determine association rules for bakery. I have not focused on the results from my research, because this project is created to interest the reader with association rules not to explain fully what it is. If I have met my goal, here is one of many websites where you can acquire knowledge about association rules: https://towardsdatascience.com/association-rules-2-aa9a77241654

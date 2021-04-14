@@ -1,0 +1,766 @@
+---
+title: "Algorithm for detecting combine harvester manufacturer using clustering and dimension reduction"
+author: "Rafal Kaczmarek"
+output: html_document
+---
+
+# Introduction
+Clustering and dimension reduction are powerful tools which are hugely helpful in work with data. They are often used in studies associated with images. It is fascinating how these tools are used to gain information from pictures. This fascination was the main reason why I decided to perform image clustering and dimension reduction. For this purpose I created algorithm for detecting combine harvester manufacturer using mentioned tools. In this study I call it manufacturer detecting algorithm. This algorithm is based on detecting the color of the vehicle. In farming machines industry every manufacturer has his own color for painting machines (for example Massey Ferguson combine harvesters are red and black, Bizon combine harvesters are blue). This is why it is possible to detect combine harvester manufacturer using only the color of the machine. Nowadays there is possibility to buy machine in different color than recommended but it is additionally paid and rarely available. I want to mention that the main goal of this study is to check usage of clustering and dimension reduction in images (not to create the most correctly algorithm for detecting manufacturer), therefore this algorithm is basic and unreliable. For this reason I do not recommend to use it in other studies.
+
+
+```{r biblio, include=FALSE}
+setwd("D:\\studia\\IV rok\\Unsupervised learning\\projekt")
+set.seed(3214)
+```
+
+## Libraries
+
+Firstly, I load necessary libraries.
+```{r libraries,message=FALSE}
+library(jpeg)
+library(ggplot2)
+library(reshape2)
+library(data.table)
+library(cluster)
+library(ClusterR)
+library(factoextra)
+library(gridExtra)
+```
+
+## Loading the image
+
+Code below is used to load the original image and convert to RGB image. RGB images do not use a palette. The color of each pixel is determined by combination of red, green and blue intensities stored in each color plane at the pixel's location. 
+
+```{r mf_combine, warning=FALSE}
+readImage <- readJPEG("mf_combine.jpg")
+longImage <- melt(readImage)
+rgbImage <- reshape(longImage, timevar = "Var3",
+                    idvar = c("Var1", "Var2"), direction = "wide")
+rgbImage$Var1 <- -rgbImage$Var1
+plot(Var1~Var2, data=rgbImage, main="Massey Ferguson combine harvester", col=rgb(rgbImage[c("value.1", "value.2", "value.3")]), asp=1, pch=".")
+```
+
+This is how RGB image looks like.
+
+
+# Clustering
+
+I start with one of the most used algorithm - K-Means. The goal is to minimize the differences within cluster and maximize the differences between clusters. It is done by partitioning N observations into K clusters in which each observation belongs to the cluster with the nearest mean. 
+
+```{r k_means_mf}
+kColors <- 7  # Number of clusters
+kMeans <- kmeans(rgbImage[, 3:5], centers = kColors)
+```
+
+I decided to use K - Means algorithm with 7 clusters, because too few clusters makes image not enough color intensity. It is not desirable, because manufacturer detecting algorithm requires information about the most intensity color.(More about this algorithm in part "Combine harvester manufacturer detecting algorithm").
+
+```{r k_means_mf_plot_color}
+col <- qplot(x=factor(kMeans$cluster), geom = "bar", 
+             fill = factor(kMeans$cluster))+labs(x="",fill = "Colors", title="Dominant colors")+
+             theme(plot.title = element_text(hjust = 0.5))
+col <- col + scale_fill_manual(values = rgb(kMeans$centers))
+print(col)
+```
+
+This plot shows image colors after clustering. Thanks to this plot I can deduce if the number of clusters have been selected correctly for manufacturer detecting algorithm. If intensive red, green or blue is visible then probably number of clusters is correct.
+
+```{r k_AC_mf}
+approximateColor <- kMeans$centers[kMeans$cluster, ]
+qplot(data = rgbImage, x = Var2, y = Var1, fill = rgb(approximateColor), geom = "tile") +
+  coord_equal() + scale_fill_identity(guide = "none")+labs( title="Massey Ferguson combine harvester after clustering")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+This is how the image after clustering looks like. Thanks to clustering I received image which is easier for computations, while the vehicle is still easily recognizable. 
+
+
+# Combine harvester manufacturer detecting algorithm
+
+This algorithm was created for this project to show how clustering and dimension reduction tools can be used. It it 2 stages algorithm. First it checks which hue (red, green or blue) is the most used in clustered image. If the vehicle on the image is big enough, this algorithm will print correct color of the vehicle, what gives information about which combine harvester manufacturer it may be.
+Second algorithm stage is more restrictive than the previous. It is based on intensity of colors. If one of the colors is much more intensive than others then this cluster is associated with adequate combine harvester manufacturer and its name is added to vector. If there is no intense color in cluster, then "Unknown" is added to vector. After it, algorithm chooses words from mentioned vector which are different than "Unknown" and if there is only one different value then the name of combine harvester manufacturer is printed.
+
+```{r test1, warning=F}
+#First stage of algorithm
+df <- data.table(approximateColor)
+z <- df[, .(COUNT = .N), by = names(df)]
+
+model_color <- c()
+if(sum(z[,1])>sum(z[,2]) & (sum(z[,1])>sum(z[,3]))){
+  model_color[1]="Red"
+}else if (sum(z[,2])>sum(z[,1]) & (sum(z[,2])>sum(z[,3]))){
+  model_color[1]="Green"
+}else if (sum(z[,3])>sum(z[,1]) & (sum(z[,3])>sum(z[,2]))){
+  model_color[1]="Blue"
+}else {model_color[1]="Unknown"}
+print(model_color[1])
+```
+
+First stage of algorithm shows that the most used hue is blue. Algorithm has not worked as it should, red color was expected as a result. Probably it is due to blue sky which covers huge part of the image, while red color covers only small part.
+
+```{r test2, warning=F}
+# Second stage of algorithm
+model_check <- c()
+for (i in 1:nrow(z)){
+  if(z[i,1]>z[i,2]+z[i,3]){
+    model_check[i]="Massey Ferguson"
+  } else if (z[i,2]>z[i,1]+z[i,3]){
+    model_check[i]="Deutz Fahr"
+  } else if (z[i,3]>z[i,1]+z[i,2]){
+    model_check[i]="Bizon"
+  } else {model_check[i]="Unknown"}
+}
+model_check
+
+model_check_u <- unique(model_check)
+if (length(model_check_u)>2) {
+  print("Cannot define model - more than 1 result")
+} else if (length(model_check_u)==2 & model_check_u[1]=="Unknown"){
+  print(model_check_u[2])
+} else {print(model_check_u[1])}
+```
+
+Second stage of algorithm has worked correctly. Red color is the most intensive, the sky color is closer to light blue than pure blue. For this reason algorithm correctly indicate Massey Ferguson combine harvester. 
+
+
+# More examples
+
+Below I present other images and show how number of clusters influences on the image. In addition I check how algorithm works with other combine harvesters images. I skipped the codes, because they are the same as above. 
+
+### Deutz Fahr
+
+I start with 7 clusters.
+
+```{r df_combine, include=FALSE}
+readImage <- readJPEG("df_combine.jpg")
+longImage <- melt(readImage)
+rgbImage <- reshape(longImage, timevar = "Var3",
+                    idvar = c("Var1", "Var2"), direction = "wide")
+rgbImage$Var1 <- -rgbImage$Var1
+
+kColors <- 7  # Number of clusters
+kMeans <- kmeans(rgbImage[, 3:5], centers = kColors)
+
+col <- qplot(x=factor(kMeans$cluster), geom = "bar", 
+             fill = factor(kMeans$cluster))+labs(x="",fill = "Colors", title="Dominant colors")+
+             theme(plot.title = element_text(hjust = 0.5))
+col <- col + scale_fill_manual(values = rgb(kMeans$centers))
+
+approximateColor <- kMeans$centers[kMeans$cluster, ]
+
+df <- data.table(approximateColor)
+z <- df[, .(COUNT = .N), by = names(df)]
+
+model_color <- c()
+if(sum(z[,1])>sum(z[,2]) & (sum(z[,1])>sum(z[,3]))){
+  model_color[1]="Red"
+}else if (sum(z[,2])>sum(z[,1]) & (sum(z[,2])>sum(z[,3]))){
+  model_color[1]="Green"
+}else if (sum(z[,3])>sum(z[,1]) & (sum(z[,3])>sum(z[,2]))){
+  model_color[1]="Blue"
+}else {model_color[1]="Unknown"}
+
+model_check <- c()
+for (i in 1:nrow(z)){
+  if(z[i,1]>z[i,2]+z[i,3]){
+    model_check[i]="Massey Ferguson"
+  } else if (z[i,2]>z[i,1]+z[i,3]){
+    model_check[i]="Deutz Fahr"
+  } else if (z[i,3]>z[i,1]+z[i,2]){
+    model_check[i]="Bizon"
+  } else {model_check[i]="Unknown"}
+}
+
+model_check_u <- unique(model_check)
+```
+
+```{r df_combine_plots, echo=FALSE}
+plot(Var1~Var2, data=rgbImage, main="Deutz Fahr combine harvester", col=rgb(rgbImage[c("value.1", "value.2", "value.3")]), asp=1, pch=".")
+print(col)
+qplot(data = rgbImage, x = Var2, y = Var1, fill = rgb(approximateColor), geom = "tile") +
+  coord_equal() + scale_fill_identity(guide = "none")+labs( title="Deutz Fahr combine harvester after clustering")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(model_color[1])
+
+if (length(model_check_u)>2) {
+  print("Cannot define model - more than 1 result")
+} else if (length(model_check_u)==2 & model_check_u[1]=="Unknown"){
+  print(model_check_u[2])
+} else {print(model_check_u[1])}
+```
+
+Everything on the image after clustering is well visible and recognizable, without any doubts I can tell color of vehicle. Algorithm has worked great. It has correctly recognized combine harvester color and manufacturer name.
+
+
+Lets check the same image but with 5 clusters.
+
+```{r df2_combine, include=FALSE}
+kColors <- 5  # Number of clusters
+kMeans <- kmeans(rgbImage[, 3:5], centers = kColors)
+
+col <- qplot(x=factor(kMeans$cluster), geom = "bar", 
+             fill = factor(kMeans$cluster))+labs(x="",fill = "Colors", title="Dominant colors")+
+             theme(plot.title = element_text(hjust = 0.5))
+col <- col + scale_fill_manual(values = rgb(kMeans$centers))
+
+approximateColor <- kMeans$centers[kMeans$cluster, ]
+
+df <- data.table(approximateColor)
+z <- df[, .(COUNT = .N), by = names(df)]
+
+model_color <- c()
+if(sum(z[,1])>sum(z[,2]) & (sum(z[,1])>sum(z[,3]))){
+  model_color[1]="Red"
+}else if (sum(z[,2])>sum(z[,1]) & (sum(z[,2])>sum(z[,3]))){
+  model_color[1]="Green"
+}else if (sum(z[,3])>sum(z[,1]) & (sum(z[,3])>sum(z[,2]))){
+  model_color[1]="Blue"
+}else {model_color[1]="Unknown"}
+
+model_check <- c()
+for (i in 1:nrow(z)){
+  if(z[i,1]>z[i,2]+z[i,3]){
+    model_check[i]="Massey Ferguson"
+  } else if (z[i,2]>z[i,1]+z[i,3]){
+    model_check[i]="Deutz Fahr"
+  } else if (z[i,3]>z[i,1]+z[i,2]){
+    model_check[i]="Bizon"
+  } else {model_check[i]="Unknown"}
+}
+
+model_check_u <- unique(model_check)
+```
+```{r df2_combine_plots, echo=FALSE}
+print(col)
+qplot(data = rgbImage, x = Var2, y = Var1, fill = rgb(approximateColor), geom = "tile") +
+  coord_equal() + scale_fill_identity(guide = "none")+labs( title="Deutz Fahr combine harvester after clustering")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(model_color[1])
+
+if (length(model_check_u)>2) {
+  print("Cannot define model - more than 1 result")
+} else if (length(model_check_u)==2 & model_check_u[1]=="Unknown"){
+  print(model_check_u[2])
+} else {print(model_check_u[1])}
+```
+
+The image after clustering is too green. It is not possible to easily recognize the vehicle color. Too few clusters caused that the image is in similar hues and none of the colors is intensive enough for algorithm. In consequence, combine harvester manufacturer cannot be recognized. 
+
+
+### Bizon
+
+I have presented red and green combine harvester so it is time to check how k-means works with image, which huge part is in one color, in that case blue. I choose 5 clusters.
+
+```{r bizon_combine, include=FALSE}
+readImage <- readJPEG("bizon_combine.jpg")
+longImage <- melt(readImage)
+rgbImage <- reshape(longImage, timevar = "Var3",
+                    idvar = c("Var1", "Var2"), direction = "wide")
+rgbImage$Var1 <- -rgbImage$Var1
+
+kColors <- 5  # Number of clusters
+kMeans <- kmeans(rgbImage[, 3:5], centers = kColors)
+
+col <- qplot(x=factor(kMeans$cluster), geom = "bar", 
+             fill = factor(kMeans$cluster))+labs(x="",fill = "Colors", title="Dominant colors")+
+             theme(plot.title = element_text(hjust = 0.5))
+col <- col + scale_fill_manual(values = rgb(kMeans$centers))
+
+approximateColor <- kMeans$centers[kMeans$cluster, ]
+
+df <- data.table(approximateColor)
+z <- df[, .(COUNT = .N), by = names(df)]
+
+model_color <- c()
+if(sum(z[,1])>sum(z[,2]) & (sum(z[,1])>sum(z[,3]))){
+  model_color[1]="Red"
+}else if (sum(z[,2])>sum(z[,1]) & (sum(z[,2])>sum(z[,3]))){
+  model_color[1]="Green"
+}else if (sum(z[,3])>sum(z[,1]) & (sum(z[,3])>sum(z[,2]))){
+  model_color[1]="Blue"
+}else {model_color[1]="Unknown"}
+
+model_check <- c()
+for (i in 1:nrow(z)){
+  if(z[i,1]>z[i,2]+z[i,3]){
+    model_check[i]="Massey Ferguson"
+  } else if (z[i,2]>z[i,1]+z[i,3]){
+    model_check[i]="Deutz Fahr"
+  } else if (z[i,3]>z[i,1]+z[i,2]){
+    model_check[i]="Bizon"
+  } else {model_check[i]="Unknown"}
+}
+
+model_check_u <- unique(model_check)
+```
+
+```{r bizon_combine_plots, echo=FALSE}
+plot(Var1~Var2, data=rgbImage, main="Bizon combine harvester", col=rgb(rgbImage[c("value.1", "value.2", "value.3")]), asp=1, pch=".")
+print(col)
+qplot(data = rgbImage, x = Var2, y = Var1, fill = rgb(approximateColor), geom = "tile") +
+  coord_equal() + scale_fill_identity(guide = "none")+labs( title="Bizon combine harvester after clustering")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(model_color[1])
+
+if (length(model_check_u)>2) {
+  print("Cannot define model - more than 1 result")
+} else if (length(model_check_u)==2 & model_check_u[1]=="Unknown"){
+  print(model_check_u[2])
+} else {print(model_check_u[1])}
+```
+
+Vehicle is well visible and easy to recognize, algorithm has worked as it should. It was the easiest example, because huge part of image is in one color which describes the vehicle and the rest of the image has similar hues, so clustering with 5 clusters has hardly affected the image.
+
+
+### Extra example
+
+Previous examples have shown how clustering and manufacturer detecting algorithm works with RGB images when goal is to obtain result which contains one of the main RGB colors - red, green or blue. This example shows what will happen if image is mostly in mixed colors, almost without pure red, pure green and pure blue. I choose 7 clusters.
+
+```{r nh_combine, include=FALSE}
+readImage <- readJPEG("nh_combine.jpg")
+longImage <- melt(readImage)
+rgbImage <- reshape(longImage, timevar = "Var3",
+                    idvar = c("Var1", "Var2"), direction = "wide")
+rgbImage$Var1 <- -rgbImage$Var1
+
+kColors <- 7  # Number of clusters
+kMeans <- kmeans(rgbImage[, 3:5], centers = kColors)
+
+col <- qplot(x=factor(kMeans$cluster), geom = "bar", 
+             fill = factor(kMeans$cluster))+labs(x="",fill = "Colors", title="Dominant colors")+
+             theme(plot.title = element_text(hjust = 0.5))
+col <- col + scale_fill_manual(values = rgb(kMeans$centers))
+
+approximateColor <- kMeans$centers[kMeans$cluster, ]
+
+df <- data.table(approximateColor)
+z <- df[, .(COUNT = .N), by = names(df)]
+
+model_color <- c()
+if(sum(z[,1])>sum(z[,2]) & (sum(z[,1])>sum(z[,3]))){
+  model_color[1]="Red"
+}else if (sum(z[,2])>sum(z[,1]) & (sum(z[,2])>sum(z[,3]))){
+  model_color[1]="Green"
+}else if (sum(z[,3])>sum(z[,1]) & (sum(z[,3])>sum(z[,2]))){
+  model_color[1]="Blue"
+}else {model_color[1]="Unknown"}
+
+model_check <- c()
+for (i in 1:nrow(z)){
+  if(z[i,1]>z[i,2]+z[i,3]){
+    model_check[i]="Massey Ferguson"
+  } else if (z[i,2]>z[i,1]+z[i,3]){
+    model_check[i]="Deutz Fahr"
+  } else if (z[i,3]>z[i,1]+z[i,2]){
+    model_check[i]="Bizon"
+  } else {model_check[i]="Unknown"}
+}
+
+model_check_u <- unique(model_check)
+```
+
+```{r nh_combine_plots, echo=FALSE}
+plot(Var1~Var2, data=rgbImage, main="New Holland combine harvester", col=rgb(rgbImage[c("value.1", "value.2", "value.3")]), asp=1, pch=".")
+print(col)
+qplot(data = rgbImage, x = Var2, y = Var1, fill = rgb(approximateColor), geom = "tile") +
+  coord_equal() + scale_fill_identity(guide = "none")+labs( title="New Holland combine harvester after clustering")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(model_color[1])
+
+if (length(model_check_u)>2) {
+  print("Cannot define model - more than 1 result")
+} else if (length(model_check_u)==2 & model_check_u[1]=="Unknown"){
+  print(model_check_u[2])
+} else {print(model_check_u[1])}
+```
+
+Clustered image looks great. Amount of colors in the image has impact on decision about number of clusters but image tone (red, blue or green intensity) is not crucial. This example shows why manufacturer detecting algorithm cannot be used in other studies. The result of second step is "Unknown", which is correct because yellow combine harvester was not defined, but the first step result is "red" while the image is mostly yellow. It is because yellow color is created mainly from red and green hue, but in that case red hue is dominating. For other purposes this algorithm needs to be upgraded. 
+
+
+## CLARA for Bizon combine harvester
+
+I will try another clustering algorithm - CLARA ( Clustering Large Applications). CLARA draws multiple samples of the dataset, then applies PAM algorithm on each sample to generate an optimal set of medoids for the sample.
+
+```{r bizon_combine_clara, warning=FALSE}
+readImage <- readJPEG("bizon_combine.jpg")
+longImage <- melt(readImage)
+rgbImage <- reshape(longImage, timevar = "Var3",
+                    idvar = c("Var1", "Var2"), direction = "wide")
+rgbImage$Var1 <- -rgbImage$Var1
+
+n1 <- c()
+for (i in 1:10) {
+  cl <- clara(rgbImage[, c("value.1", "value.2", "value.3")], i)
+  n1[i] <- cl$silinfo$avg.width
+}
+for (i in 2:length(n1)){
+  print(paste('Average silhouette for',i,'clusters:',n1[i]))
+}
+```
+```{r clara_maximum, warning=FALSE}
+print(paste('The maximum average silhouette is for',which.max(n1),'clusters:',n1[which.max(n1)]))
+```
+
+Firstly I try to find the optimal number of clusters. For this purpose I use Silhouette width, which describes clustering consistency (value from -1 to 1). The aim is to choose number of clusters with the highest Silhouette, because higher value means better clustering. In that case, two clusters is optimal number of clusters.
+
+
+```{r clara_maximum_plot, warning=FALSE}
+plot(n1, type = 'l',
+     main = "Optimal number of clusters for Bizon combine harvester",
+     xlab = "Number of clusters", ylab = "Average silhouette", col = "red")
+```
+
+## CLARA
+
+I run CLARA algorithm with 2 clusters.
+
+```{r clara_plot, warning=FALSE}
+clara<-clara(rgbImage[,3:5], 2) 
+plot(silhouette(clara),main="Silhouette plot of clara")
+```
+
+Plot above shows the quality of clustering.
+
+```{r clara_last, warning=FALSE}
+approximateColor_clara <- clara$medoids[clara$clustering, ]
+colors<-rgb(clara$medoids[clara$clustering, ])
+plot(rgbImage$Var1~rgbImage$Var2, col=colors, pch=".", cex=2, asp=1, main="Bizon combine harvester in 2 clusters",xlab="Var1", ylab="Var2")
+```
+
+Bizon combine harvester image after CLARA clustering. This image in 2 clusters is optimal for computer but it makes this image illegible for human.
+
+
+```{r clara_test, include=FALSE}
+df <- data.table(approximateColor_clara)
+z <- df[, .(COUNT = .N), by = names(df)]
+
+model_color <- c()
+if(sum(z[,1])>sum(z[,2]) & (sum(z[,1])>sum(z[,3]))){
+  model_color[1]="Red"
+}else if (sum(z[,2])>sum(z[,1]) & (sum(z[,2])>sum(z[,3]))){
+  model_color[1]="Green"
+}else if (sum(z[,3])>sum(z[,1]) & (sum(z[,3])>sum(z[,2]))){
+  model_color[1]="Blue"
+}else {model_color[1]="Unknown"}
+
+model_check <- c()
+for (i in 1:nrow(z)){
+  if(z[i,1]>z[i,2]+z[i,3]){
+    model_check[i]="Massey Ferguson"
+  } else if (z[i,2]>z[i,1]+z[i,3]){
+    model_check[i]="Deutz Fahr"
+  } else if (z[i,3]>z[i,1]+z[i,2]){
+    model_check[i]="Bizon"
+  } else {model_check[i]="Unknown"}
+}
+
+model_check_u <- unique(model_check)
+```
+
+
+```{r clara_test_result, echo=FALSE}
+print(model_color[1])
+
+if (length(model_check_u)>2) {
+  print("Cannot define model - more than 1 result")
+} else if (length(model_check_u)==2 & model_check_u[1]=="Unknown"){
+  print(model_check_u[2])
+} else {print(model_check_u[1])}
+
+```
+
+Manufacturer detecting algorithm does not work, because colors are not sharp enough.
+
+
+### One cluster more
+
+I tried CLARA clustering with the highest Silhouette width so now I will try CLARA clustering with the lowest Silhouette width just to check the difference in images and algorithm. The lowest Silhouette width is for 3 clusters.
+
+```{r bizon_combine_clara2, include=FALSE}
+n1 <- c()
+for (i in 1:10) {
+  cl <- clara(rgbImage[, c("value.1", "value.2", "value.3")], i)
+  n1[i] <- cl$silinfo$avg.width
+}
+
+clara<-clara(rgbImage[,3:5], 3) 
+
+approximateColor_clara <- clara$medoids[clara$clustering, ]
+colors<-rgb(clara$medoids[clara$clustering, ])
+```
+
+```{r bizon_clara_maximum_plot2, echo=FALSE}
+
+plot(silhouette(clara),main="Silhouette plot of clara")
+
+plot(rgbImage$Var1~rgbImage$Var2, col=colors, pch=".", cex=2, asp=1, main="Bizon combine harvester in 3 clusters",xlab="Var1", ylab="Var2")
+```
+
+```{r clara_bizon_test2, include=FALSE}
+df <- data.table(approximateColor_clara)
+z <- df[, .(COUNT = .N), by = names(df)]
+
+model_color <- c()
+if(sum(z[,1])>sum(z[,2]) & (sum(z[,1])>sum(z[,3]))){
+  model_color[1]="Red"
+}else if (sum(z[,2])>sum(z[,1]) & (sum(z[,2])>sum(z[,3]))){
+  model_color[1]="Green"
+}else if (sum(z[,3])>sum(z[,1]) & (sum(z[,3])>sum(z[,2]))){
+  model_color[1]="Blue"
+}else {model_color[1]="Unknown"}
+
+model_check <- c()
+for (i in 1:nrow(z)){
+  if(z[i,1]>z[i,2]+z[i,3]){
+    model_check[i]="Massey Ferguson"
+  } else if (z[i,2]>z[i,1]+z[i,3]){
+    model_check[i]="Deutz Fahr"
+  } else if (z[i,3]>z[i,1]+z[i,2]){
+    model_check[i]="Bizon"
+  } else {model_check[i]="Unknown"}
+}
+
+model_check_u <- unique(model_check)
+```
+
+
+```{r clara_bizon_test_result2, echo=FALSE}
+print(model_color[1])
+
+if (length(model_check_u)>2) {
+  print("Cannot define model - more than 1 result")
+} else if (length(model_check_u)==2 & model_check_u[1]=="Unknown"){
+  print(model_check_u[2])
+} else {print(model_check_u[1])}
+
+```
+
+In that case, manufacturer algorithm has worked. This example shows that finding the optimal number of cluster using selected method (e.g. Silhouette) is not enough if we want to obtain appropriate clustering. It is necessary to analyze the results and adopt them to case.
+
+
+# Dimension reduction
+
+In this part I use dimension reduction and check if it is useful in a manufacturer detecting algorithm. Dimension reduction has
+not only computational reasons (less time and storage) but also statistical reasons (better generalization). To deal with it I use Principal Component Analysis (PCA). In a nutshell, the idea of PCA is to reduce the number of variables of a data set, while preserving as much information as possible. More details about PCA: https://builtin.com/data-science/step-step-explanation-principal-component-analysis
+
+```{r DR_mf, warning=FALSE}
+readImage <- readJPEG('mf_combine.jpg')
+
+r <- readImage[,,1]
+g <- readImage[,,2]
+b <- readImage[,,3]
+
+r.pca <- prcomp(r, center = FALSE)
+g.pca <- prcomp(g, center = FALSE)
+b.pca <- prcomp(b, center = FALSE)
+
+rgb.pca <- list(r.pca, g.pca, b.pca)
+```
+
+To show advantages of PCA I use the Massey Ferguson combine harvester image. It is the same image as in the first example in previous part.
+
+## Massey Ferguson - PCA
+
+The goal of this part is to show how dimension reduction works on specific image. Hence, I create 10 compressed images, the first with 1 principal component and the last with 60 principal components.
+
+```{r DR_mf_start_visible, eval=FALSE}
+path <- "..."
+plot_name <- "mf_combine.jpg"
+plot_jpeg <-  function(path, plot_name, add=FALSE)
+{
+  require('jpeg')
+  jpg = readJPEG(path, native=T) 
+  res = dim(jpg)[2:1] 
+  if (!add) 
+    plot(1,1,xlim=c(1,res[1]),ylim=c(1,res[2]),
+         asp=1,type='n',xaxs='i',yaxs='i',xaxt='n',yaxt='n',
+         xlab='',ylab='',bty='n',main=plot_name)
+  rasterImage(jpg,1,1,res[1],res[2])
+}
+
+for (i in seq.int(1, 60, length.out = 10)) {
+  pca.img <- sapply(rgb.pca, function(j) {
+    compressed.img <- j$x[,1:i] %*% t(j$rotation[,1:i])
+  }, simplify = 'array')
+  writeJPEG(pca.img, paste('...\\figure\\mf_combine_compressed_',
+                           round(i,0), '_components.jpg', sep = ''))
+  plot_jpeg(paste('...\\figure\\mf_combine_compressed_', round(i,0),
+                  '_components.jpg', sep = ''), paste(round(i,0),
+                                                      ' Components', sep = ''))
+}
+```
+
+```{r DR_mf_start_plots,figures-side, fig.show="hold", out.width="50%", echo=FALSE}
+## redukcja wymiaru
+path <- "D:\\studia\\IV rok\\Unsupervised learning\\projekt"
+plot_name <- "mf_combine.jpg"
+#define the plot function, plot jpg in r device
+plot_jpeg <-  function(path, plot_name, add=FALSE)
+{
+  require('jpeg')
+  jpg = readJPEG(path, native=T) # read the file
+  res = dim(jpg)[2:1] # get the resolution, [x, y]
+  if (!add) # initialize an empty plot area if add==FALSE
+    plot(1,1,xlim=c(1,res[1]),ylim=c(1,res[2]),
+         asp=1,type='n',xaxs='i',yaxs='i',xaxt='n',yaxt='n',
+         xlab='',ylab='',bty='n',main=plot_name)
+  rasterImage(jpg,1,1,res[1],res[2])
+}
+
+for (i in seq.int(1, 60, length.out = 10)) {
+  pca.img <- sapply(rgb.pca, function(j) {
+    compressed.img <- j$x[,1:i] %*% t(j$rotation[,1:i])
+  }, simplify = 'array')
+  writeJPEG(pca.img, paste('D:\\studia\\IV rok\\Unsupervised learning\\projekt\\figure\\mf_combine_compressed_',
+                           round(i,0), '_components.jpg', sep = ''))
+  plot_jpeg(paste('D:\\studia\\IV rok\\Unsupervised learning\\projekt\\figure\\mf_combine_compressed_', round(i,0),
+                  '_components.jpg', sep = ''), paste(round(i,0),
+                                                      ' Components', sep = ''))
+}
+```
+
+This is how compressed images look like. 1 component image is totally illegible, but even 14 components are enough to create image which quality is good enough to recognize the combine harvester manufacturer from image. 
+
+## How it affects the image file size? 
+
+```{r DR_mf_size_visible, eval=FALSE}
+
+original <- file.info('mf_combine.jpg')$size / 1000
+imgs <- dir('...\\figure\\')
+for (i in imgs) {
+  full.path <- paste('...\\figure\\', i, sep='')
+  print(paste(i, ' size: ', file.info(full.path)$size / 1000,
+              ' original: ', original, ' % diff: ',
+              round((file.info(full.path)$size / 1000 - original) / original, 2) * 100,
+              '%', sep = ''))
+}
+
+```
+
+```{r DR_mf_size, echo=FALSE}
+original <- file.info('mf_combine.jpg')$size / 1000
+imgs <- dir('D:\\studia\\IV rok\\Unsupervised learning\\projekt\\figure\\')
+for (i in imgs) {
+  full.path <- paste('D:\\studia\\IV rok\\Unsupervised learning\\projekt\\figure\\', i, sep='')
+  print(paste(i, ' size: ', file.info(full.path)$size / 1000,
+              ' original: ', original, ' % diff: ',
+              round((file.info(full.path)$size / 1000 - original) / original, 2) * 100,
+              '%', sep = ''))
+}
+```
+
+For this image dimension reduction is beneficial in case of file size. 1 component image has only 26% file size of the original image. Even 60 components image has only 73% original file size while objects on the image are in good quality and easy to recognize. Obviously, dimension reduction is not so beneficial for every image like in this case. Sometimes is much less profitable, but still it is worth to do it and check the results.
+
+## Importance of PCA
+
+```{r DR_var, warning=FALSE}
+f1<-fviz_eig(r.pca, main="Red", barfill="red", ncp=5, addlabels=TRUE)
+f2<-fviz_eig(g.pca, main="Green", barfill="green", ncp=5, addlabels=TRUE)
+f3<-fviz_eig(b.pca, main="Blue", barfill="blue", ncp=5, addlabels=TRUE)
+grid.arrange(f1, f2, f3, ncol=3)
+```
+
+Plots show proportion of explained variance for each color. Majority of variance is explained by only 1 dimension, for green and blue it is over 90% and for red it is 86,6%. Each of the rest dimensions explains just a little of variance. It is well visible on the plots below which show cumulative percentage of explained variance.
+
+```{r DR_var_cum, warning=FALSE}
+par(mfrow = c(1,3))
+plot(get_eigenvalue(r.pca)[1:10,3], type = "b", main = "Red", xlab = "Dimensions", ylab = "Cumulative percentage of explained variance", col = "red", ylim = c(50,100), panel.first = grid())
+plot(get_eigenvalue(g.pca)[1:10,3],type = "b", main = "Green", xlab = "Dimensions", ylab = "Cumulative percentage of explained variance", col = "green", ylim = c(50,100), panel.first = grid())
+plot(get_eigenvalue(b.pca)[1:10,3],type = "b", main = "Blue", xlab = "Dimensions", ylab = "Cumulative percentage of explained variance", col = "blue", ylim = c(50,100), panel.first = grid())
+```
+
+## Manufacturer detecting algorithm using clustering and dimension reduction
+
+I have checked how dimension reduction influences the image so it is turn to check how dimension reduction affects manufacturer detecting algorithm. I load Massey Ferguson combine harvester image in 14 principal components, then I use K-means with 7 clusters and apply manufacturer detecting algorithm. The original image and number of cluster are the same as in the previous part about clustering therefore we can compare the results.
+
+```{r DR_test, warning=FALSE}
+readImage_PCA <- readJPEG("figure\\mf_combine_compressed_14_components.jpg")
+longImage_PCA <- melt(readImage_PCA)
+rgbImage_PCA <- reshape(longImage_PCA, timevar = "Var3",
+                    idvar = c("Var1", "Var2"), direction = "wide")
+rgbImage_PCA$Var1 <- -rgbImage_PCA$Var1
+approximateColor_PCA <- rgbImage_PCA[, 3:5]
+
+df <- data.table(approximateColor_PCA)
+z <- df[, .(COUNT = .N), by = names(df)]
+
+model_color <- c()
+if(sum(z[,1])>sum(z[,2]) & (sum(z[,1])>sum(z[,3]))){
+  model_color[1]="Red"
+}else if (sum(z[,2])>sum(z[,1]) & (sum(z[,2])>sum(z[,3]))){
+  model_color[1]="Green"
+}else if (sum(z[,3])>sum(z[,1]) & (sum(z[,3])>sum(z[,2]))){
+  model_color[1]="Blue"
+}else {model_color[1]="Unknown"}
+print(model_color[1])
+```
+
+Like in previous part about clustering, first stage of algorithm shows that the most used hue is blue.
+
+```{r DR_k_means, warning=FALSE}
+kcolors_PCA <- 7
+kMeans_PCA <- kmeans(rgbImage_PCA[, 3:5], centers = kcolors_PCA)
+
+col_PCA <- qplot(x=factor(kMeans_PCA$cluster), geom = "bar", 
+             fill = factor(kMeans_PCA$cluster))+labs(x="",fill = "Colors", title="Dominant colors")+
+             theme(plot.title = element_text(hjust = 0.5))
+col_PCA <- col_PCA + scale_fill_manual(values = rgb(kMeans_PCA$centers))
+plot(col_PCA)
+```
+
+Dominant colors plot looks nearly the same as in the previous part.
+
+```{r DR_k_means_plot, warning=FALSE}
+approximateColor_PCA <- kMeans_PCA$centers[kMeans_PCA$cluster, ]
+qplot(data = rgbImage_PCA, x = Var2, y = Var1, fill = rgb(approximateColor_PCA), geom = "tile") +
+  coord_equal() + scale_fill_identity(guide = "none")+labs( title="Massey Ferguson combine harvester after dimension reduction and clustering")+theme(plot.title = element_text(hjust = 0.5))
+```
+
+The quality of this image is definitely worse than in the previous part. Dimension reduction caused that the quality of the image has decreased and objects in the background are unrecognizable but if manufacturer detecting algorithm is applied, the quality of the image does not matter, because this algorithm recognize objects using color intense, not quality.
+
+```{r DR_k_means_test, warning=FALSE}
+df <- data.table(approximateColor_PCA)
+z <- df[, .(COUNT = .N), by = names(df)]
+
+model_check <- c()
+for (i in 1:nrow(z)){
+  if(z[i,1]>z[i,2]+z[i,3]){
+    model_check[i]="Massey Ferguson"
+  }
+  else if (z[i,2]>z[i,1]+z[i,3]){
+    model_check[i]="Deutz Fahr"
+  }
+  else if (z[i,3]>z[i,1]+z[i,2]){
+    model_check[i]="Bizon"
+  }
+  else {model_check[i]="Unknown"}
+}
+
+model_check_u <- unique(model_check)
+
+model_check_u <- unique(model_check)
+if (length(model_check_u)>2) {
+  print("Cannot define model - more than 1 result")
+} else if (length(model_check_u)==2 & model_check_u[1]=="Unknown"){
+  print(model_check_u[2])
+} else {print(model_check_u[1])}
+```
+
+In that case, image quality does not affect the manufacturer detecting algorithm. The result is the same as in the previous part. It means that it is possible to obtain benefits from dimension reduction, then use clustering and still get the same result from algorithm. 
+
+# Conclusion
+
+This study shows how dimension reduction and clustering could be used as a part of algorithm. Clustering allowed to detect combine harvester manufacturer using only color of the machine in the image while dimension reduction caused profits from computational and statistical reasons.
+
+
+
+# References
+
+https://builtin.com/data-science/step-step-explanation-principal-component-analysis
+
+https://gist.github.com/dsparks/3980277
+
+https://www.math.mcgill.ca/yyang/regression/extra/PCA_Demo
